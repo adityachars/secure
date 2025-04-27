@@ -1,0 +1,56 @@
+trigger: none
+pr: none
+
+schedules:
+- cron: "0 4 * * MON"
+  displayName: Storage IP Clean up
+  branches:
+    include: 
+    - develop
+    exclude:
+    - develop/*
+    - features/*
+  always: true
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+# ###################################
+# # Cleanup IPs in DEV environment
+# ###################################
+- stage: Cleanup_IP_Dev
+  displayName: 'Cleanup IPs from DEV SA'
+  jobs:
+    - template: ../stages/ip-cleanup.yml
+      parameters:
+        env: dev
+        serviceConnection: SSEU-ETL-CIP-dev
+        resourceGroupName: RGAZ-SSEU-ETL-CIP-dev
+        storageAccountName: northstarstoragedev
+
+# ###################################
+# # Cleanup IPs in TEST environment
+# ###################################
+- stage: Cleanup_IP_Test
+  displayName: 'Cleanup IPs from TEST SA'
+  jobs:
+    - template: ../stages/ip-cleanup.yml
+      parameters:
+        env: test
+        serviceConnection: Azure-Test
+        resourceGroupName: RGAZ-SSEU-ETL-CIP-test
+        storageAccountName: northstarstoragetest
+
+# ###################################
+# # Cleanup IPs in UAT environment
+# ###################################
+- stage: Cleanup_IP_Uat
+  displayName: 'Cleanup IPs from UAT SA'
+  jobs:
+    - template: ../stages/ip-cleanup.yml
+      parameters:
+        env: uat
+        serviceConnection: SSEU-ETL-CIP-UAT
+        resourceGroupName: RGAZ-SSEU-ETL-CIP-UAT
+        storageAccountName: northstarstorageacctuat
