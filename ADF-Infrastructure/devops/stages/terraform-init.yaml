@@ -1,0 +1,79 @@
+parameters:
+  - name: environment
+    type: string
+    default: ""
+  - name: connection
+    type: string
+    default: ""
+  - name: resourceGroup
+    type: string
+    default: ""
+  - name: storageAccount
+    type: string
+    default: ""
+
+steps:
+  - task: ms-devlabs.custom-terraform-tasks.custom-terraform-installer-task.TerraformInstaller@0
+    displayName: "Install Terraform 1.1.4"
+    inputs:
+      terraformVersion: 1.1.5
+
+  - task: AzureCLI@2
+    displayName: "Pass service principal credentials"
+    inputs:
+      azureSubscription: ${{ parameters.connection }}
+      scriptType: bash
+      addSpnToEnvironment: true
+      scriptLocation: inlineScript
+      workingDirectory: "$(Pipeline.Workspace)/ADF-Infrastructure"
+      inlineScript: |
+        echo "##vso[task.setvariable variable=ARM_CLIENT_ID]$servicePrincipalId"
+        echo "##vso[task.setvariable variable=ARM_CLIENT_SECRET]$servicePrincipalKey"
+        echo "##vso[task.setvariable variable=ARM_TENANT_ID]$(az account show --query 'tenantId' --output tsv)"
+        echo "##vso[task.setvariable variable=ARM_SUBSCRIPTION_ID]$(az account show --query 'id' --output tsv)"
+
+  - task: AzureCLI@2
+    displayName: "Terraform init"
+    env:
+      STORAGE_ACCOUNT_NAME: ${{ parameters.storageAccount }}
+      CONTAINER_NAME: terraform
+      CONTAINER_KEY: state.tfstate
+      RESOURCE_GROUP_NAME: ${{ parameters.resourceGroup }}
+      AZURE_CORE_OUTPUT: none
+    inputs:
+      azureSubscription: ${{ parameters.connection }}
+      scriptType: bash
+      addSpnToEnvironment: true
+      scriptLocation: inlineScript
+      workingDirectory: "$(Pipeline.Workspace)/ADF-Infrastructure"
+      inlineScript: |
+        terraform init -reconfigure -upgrade -no-color \
+          -backend-config=storage_account_name=$STORAGE_ACCOUNT_NAME \
+          -backend-config=container_name=$CONTAINER_NAME \
+          -backend-config=key=$CONTAINER_KEY \
+          -backend-config=resource_group_name=$RESOURCE_GROUP_NAME \
+          -backend-config=subscription_id=$ARM_SUBSCRIPTION_ID \
+          -backend-config=tenant_id=$ARM_TENANT_ID \
+          -backend-config=client_id=$ARM_CLIENT_ID \
+          -backend-config=client_secret=$ARM_CLIENT_SECRET
+
+
+  - task: Bash@3
+    displayName: "Select workspace"
+    env:
+      env_name: ${{ parameters.environment }}
+      AZURE_CORE_OUTPUT: none
+    inputs:
+      targetType: "inline"
+      workingDirectory: "$(Pipeline.Workspace)/ADF-Infrastructure"
+      script: |
+        echo List of workspaces:
+        terraform workspace list
+
+        if [ $(terraform workspace list | grep -c "$env_name") -eq 0 ] ; then
+            echo "Create workspace $env_name"
+            terraform workspace new "$env_name" -no-color
+        else 
+            echo "Select workspace $env_name"
+            terraform workspace select "$env_name" -no-color
+        fi
