@@ -1,0 +1,39 @@
+trigger:
+  - main
+  
+
+pool:
+  #vmImage: "ubuntu-latest"
+  name: ADF-Infra-test
+
+stages:
+  - stage: Build
+    jobs:
+      - job:
+        displayName: Build artifacts
+        steps:
+          - task: PublishPipelineArtifact@1
+            displayName: "Publish modules"
+            inputs:
+              targetPath: "ADF-Infrastructure/terraform"
+              artifactName: "ADF-Infrastructure"
+
+  - stage: Test
+    jobs:
+      - template: ../stages/terraform.yaml
+        parameters:
+          environment: test
+          connection: Azure-Test
+          resourceGroup: RGAZ-SSEU-ETL-CIP-test
+          storageAccount: terraformadftest
+          adfStorageAccount: northstarstoragetest
+  
+  # - stage: Prod
+  #   jobs:
+  #     - template: ../stages/terraform.yaml
+  #       parameters:
+  #         environment: prod
+  #         connection: SSEU-ETL-CIP-PROD
+  #         resourceGroup: RGAZ-SSEU-ETL-CIP-prod
+  #         storageAccount: terraformadfprod
+
