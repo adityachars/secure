@@ -1,0 +1,536 @@
+resources:
+  repositories:
+  - repository: RELEASE_24_08_DE
+    type: git
+    name: QRG-ReleaseEngineers/RELEASE_24_08_DE
+    ### automatic trigger; uncomment after moving repository to Azure Repos
+    # trigger:
+    #   branches:
+    #     include:
+    #     - release/*de*
+    #     - release/*uk*
+    #     - release/*us*
+    #     - release/*it*
+    #     - release/*jp*
+### parameters used only for manual trigger
+parameters:
+- name: ReleaseBranch
+  displayName: Release Branch
+  type: string
+  default: "refs/heads/release/m24.04_jp"
+- name: RELEASE_NAME
+  displayName: Release Name
+  type: string
+  default: "MXX.XX_DE"
+- name: APP_NAME
+  displayName: App Name
+  type: string
+  default: "MXX.XX_DE_APPLS"
+ 
+variables:
+    - name: PIPELINE_VERSION_CODE
+      value: ''
+    - name: PIPELINE_VERSION_NAME
+      value: ''
+    - name: environment
+      value: production
+    - name: ANDROID_HOME
+      value: ~/.android
+    ### variables used for automatic trigger
+    - ${{ if eq( variables['Build.Reason'], 'IndividualCI' ) }}: 
+        - name: BRANCH_NAME
+          value: $[replace(variables['Build.SourceBranch'], 'refs/heads/', 'origin/')]
+        - ${{ if contains(variables['Build.SourceBranch'], 'de') }}:
+          - group: Applause_DE_Android
+          - name: GROUP_ID
+            value: 378
+          - name: geo
+            value: deutschland
+        - ${{ elseif contains(variables['Build.SourceBranch'], '_uk') }}:
+          - group: Applause_UK_Android
+          - name: GROUP_ID
+            value: 425
+          - name: geo
+            value: unitedkingdom
+        - ${{ elseif contains(variables['Build.SourceBranch'], '_us') }}:
+          - group: Applause_US_Android
+          - name: GROUP_ID
+            value: 445
+          - name: geo
+            value: unitedstates
+        - ${{ elseif contains(variables['Build.SourceBranch'], '_jp') }}:
+          - group: Applause_JP_Android
+          - name: GROUP_ID
+            value: 450
+          - name: geo
+            value: japan
+        - ${{ elseif contains(variables['Build.SourceBranch'], '_it') }}:
+          - group: Applause_IT_Android
+          - name: GROUP_ID
+            value: 446
+          - name: geo
+            value: italy
+        - name: PIPELINE_NAME_BRANCH
+          value: $[replace(variables['Build.SourceBranch'], 'refs/heads/release/', '')]
+      ### variables used for manual trigger
+    - ${{ if ne( variables['Build.Reason'], 'IndividualCI' ) }}:
+        - name: BRANCH_NAME
+          value: ${{ replace(parameters.ReleaseBranch, 'refs/heads/', 'origin/') }}
+        - ${{ if contains(parameters['ReleaseBranch'], 'de') }}:
+          - group: Applause_DE_Android
+          - name: GROUP_ID
+            value: 378
+          - name: geo
+            value: deutschland
+        - ${{ elseif contains(parameters['ReleaseBranch'], '_uk') }}:
+          - group: Applause_UK_Android
+          - name: GROUP_ID
+            value: 425
+          - name: geo
+            value: unitedkingdom
+        - ${{ elseif contains(parameters['ReleaseBranch'], '_us') }}:
+          - group: Applause_US_Android
+          - name: GROUP_ID
+            value: 445
+          - name: geo
+            value: unitedstates
+        - ${{ elseif contains(parameters['ReleaseBranch'], '_jp') }}:
+          - group: Applause_JP_Android
+          - name: GROUP_ID
+            value: 450
+          - name: geo
+            value: japan
+        - ${{ elseif contains(parameters['ReleaseBranch'], '_it') }}:
+          - group: Applause_IT_Android
+          - name: GROUP_ID
+            value: 446
+          - name: geo
+            value: italy
+        - name: PIPELINE_NAME_BRANCH
+          value: ${{ replace(parameters['ReleaseBranch'], 'refs/heads/release/', '') }}
+    - group: Akamai
+    - group: Azure API Connection
+ 
+        # Branch name for pipeline name
+name: Branch=$(PIPELINE_NAME_BRANCH) Date=$(Date:yyyy.MM.dd) Revision=$(Rev:.r)
+ 
+jobs:
+- job: Job_1
+  displayName: Build application
+  pool:
+    vmImage: macOS-latest
+    #name: "qrg-releaseengineers-lin-ss"
+ 
+  steps:
+  - checkout: RELEASE_24_08_DE
+    clean: true
+    fetchTags: false
+    fetchDepth: 0
+ 
+  - task: JavaToolInstaller@0
+    displayName: Switching to Java 11
+    inputs:
+      versionSpec: '11'
+      jdkArchitectureOption: 'x64'
+      jdkSourceOption: 'PreInstalled'
+  - task: Bash@3
+    displayName: Adding Build Tag
+    inputs:
+      targetType: inline
+      script: |
+        if [[ $BRANCH_NAME == *"de"* ]]; then
+          echo "##vso[build.addbuildtag]DE"
+        elif [[ $BRANCH_NAME == *"uk"* ]]; then
+          echo "##vso[build.addbuildtag]UK"
+        elif [[ $BRANCH_NAME == *"us"* ]]; then
+          echo "##vso[build.addbuildtag]US"
+        elif [[ $BRANCH_NAME == *"it"* ]]; then
+          echo "##vso[build.addbuildtag]IT"
+        elif [[ $BRANCH_NAME == *"jp"* ]]; then
+          echo "##vso[build.addbuildtag]JP"
+        fi 
+  - task: Bash@3
+    displayName: Adding new values to local.properties and gradle.properties
+    inputs:
+      targetType: inline
+      script: |
+        ### Appending this value in order to avoid crash due to the lack of memory
+        echo "org.gradle.jvmargs=-Xmx4096M" >> gradle.properties
+        echo "\n\n\nShowind gradle.properties file"
+        cat gradle.properties
+  - task: PowerShell@2
+    displayName: Creating $(timestamp) variable (Unix epoch)
+    inputs:
+      targetType: inline
+      script: |
+        $unixEpochStart = new-object DateTime 1970,1,1,0,0,0,([DateTimeKind]::Utc)
+        $unixTestStart = [int]([DateTime]::UtcNow - $unixEpochStart).TotalSeconds
+ 
+        #set the value of $unixTestStart to environment variable $(timestamp)
+        Write-Host "##vso[task.setvariable variable=timestamp]$unixTestStart"
+  - task: Bash@3
+    displayName: Update global variables
+    inputs:
+      targetType: inline
+      script: |
+        ### Needed for first time pipeline run
+        #export AZURE_CLI_DISABLE_CONNECTION_VERIFICATION=1
+        #az extension add --name azure-devops
+ 
+        ### Authenticating pipeline with library
+        export AZURE_DEVOPS_EXT_PAT=$(VAR_GROUP_TOKEN)
+        az devops configure --defaults project=$(System.TeamProject)
+ 
+        ### Taking Jira Tickets from last 120 days and adding it to global variables
+        JIRA_TICKETS=$(git log $(BRANCH_NAME) --merges --format="%cd" --date=short --since="240 days ago" | sort -u -r |  while read DATE ; do
+            echo
+            echo [$DATE]
+            GIT_PAGER=cat git log $(BRANCH_NAME) --merges  --format=" * %s" --since="$DATE 00:00:00" --until="$DATE 24:00:00" | grep 'Merge pull request' | awk '{print $(NF-2)}' | awk -F "/" '{print $NF}' | awk '!a[$0]++'
+        done)
+ 
+        JIRA_TICKETS=$(echo "$JIRA_TICKETS" | cut -c 1-4096)
+ 
+        ### Finding and shortening the commit id
+        Build_commitID=$(git rev-parse HEAD)
+        COMMIT_HASH=$(git rev-parse --short=3 $Build_commitID)
+ 
+        ### Editing Unix epoch timestamp to human readable format
+        BUILD_TIMESTAMP=$(date -u -r $(timestamp) '+%Y-%m-%d-%H.%M.%S')
+ 
+        ### Creating RELEASAE_NAME variable from branch name. Extract the release name after "origin/release/"
+        RELEASE_NAME="${BRANCH_NAME##*/}"
+ 
+        ### Save variables from this task as global ones. So they can be used in other tasks
+        echo "##vso[task.setvariable variable=COMMIT_HASH]$COMMIT_HASH"
+        echo "##vso[task.setvariable variable=BUILD_TIMESTAMP]$BUILD_TIMESTAMP"
+        echo "##vso[task.setvariable variable=DISTRIBUTION]$DISTRIBUTION"
+        echo "##vso[task.setvariable variable=RELEASE_NAME]$RELEASE_NAME"
+        echo "##vso[task.setvariable variable=JIRA_TICKETS]$JIRA_TICKETS"
+ 
+        ### Update existing variables with new values (group-id should be set for each variable group)
+        az pipelines variable-group variable update --group-id $(GROUP_ID) --name 'COMMIT_HASH' --value "$COMMIT_HASH" --organization "https://dev.azure.com/Qurate/" --project "QRG-ReleaseEngineers"
+        az pipelines variable-group variable update --group-id $(GROUP_ID) --name 'BUILD_TIMESTAMP' --value "$BUILD_TIMESTAMP" --organization "https://dev.azure.com/Qurate/" --project "QRG-ReleaseEngineers"
+        az pipelines variable-group variable update --group-id $(GROUP_ID) --name 'DISTRIBUTION' --value "$DISTRIBUTION" --organization "https://dev.azure.com/Qurate/" --project "QRG-ReleaseEngineers"
+        az pipelines variable-group variable update --group-id $(GROUP_ID) --name 'RELEASE_NAME' --value "$RELEASE_NAME" --organization "https://dev.azure.com/Qurate/" --project "QRG-ReleaseEngineers"
+        az pipelines variable-group variable update --group-id $(GROUP_ID) --name 'TICKETS' --value "$JIRA_TICKETS" --organization "https://dev.azure.com/Qurate/" --project "QRG-ReleaseEngineers"
+  - task: Bash@3
+    displayName: Version Name and Version Code change if var exists
+    inputs:
+      targetType: inline
+      script: |
+        ### Authenticating pipeline with library
+        export AZURE_DEVOPS_EXT_PAT=$(VAR_GROUP_TOKEN)
+        az devops configure --defaults project=$(System.TeamProject)
+ 
+        # Write overridden values:
+        if [ "$(PIPELINE_VERSION_NAME)" != "" ]; then
+            echo deutschland_version_name=$(PIPELINE_VERSION_NAME) >> build_overrides.properties
+            az pipelines variable-group variable update --group-id $(GROUP_ID) --name 'VERSION_NAME' --value "$(PIPELINE_VERSION_NAME)" --organization "https://dev.azure.com/Qurate/" --project "QRG-ReleaseEngineers"
+        else
+            PIPELINE_VERSION_NAME=$(awk -F= -v geo="$(geo)" '$1 ~ geo"_version_name" {print $2}' gradle.properties)
+            echo "VERSION_NAME=$PIPELINE_VERSION_NAME"
+            az pipelines variable-group variable update --group-id $(GROUP_ID) --name 'VERSION_NAME' --value "$PIPELINE_VERSION_NAME" --organization "https://dev.azure.com/Qurate/" --project "QRG-ReleaseEngineers"
+        fi
+ 
+        if [ "$(PIPELINE_VERSION_CODE)" != "" ]; then
+            echo deutschland_version_name=$(PIPELINE_VERSION_CODE) >> build_overrides.properties
+            az pipelines variable-group variable update --group-id $(GROUP_ID) --name 'VERSION_CODE' --value "$(PIPELINE_VERSION_CODE)" --organization "https://dev.azure.com/Qurate/" --project "QRG-ReleaseEngineers"
+        else
+            PIPELINE_VERSION_CODE=$(awk -F= -v geo="$(geo)" '$1 ~ geo"_version_code" {print $2}' gradle.properties)
+            echo "VERSION_CODE=$PIPELINE_VERSION_CODE"
+            az pipelines variable-group variable update --group-id $(GROUP_ID) --name 'VERSION_CODE' --value "$PIPELINE_VERSION_CODE" --organization "https://dev.azure.com/Qurate/" --project "QRG-ReleaseEngineers"
+        fi
+ 
+        echo "#" >> build_overrides.properties
+  - task: Bash@3
+    displayName: Change App Name
+    inputs:
+      targetType: inline
+      script: |
+          ### Change app name in build properties (manual trigger)
+          echo ${{ parameters.APP_NAME }} >> build_overrides.properties
+          cat build_overrides.properties
+    condition: ne( variables['Build.Reason'], 'IndividualCI' )
+  - task: Bash@3
+    displayName: Change App Name
+    inputs:
+      targetType: inline
+      script: |
+          ### Change app name in build properties (automatic trigger)
+          echo  "$(RELEASE_NAME)_APPLS" >> build_overrides.properties
+          cat build_overrides.properties
+    condition: eq( variables['Build.Reason'], 'IndividualCI' )
+    
+  ### Change build properties based on country
+  - task: Bash@3
+    displayName: Adding build and region specific values to build_overrides.properties
+    inputs:
+      targetType: inline
+      script: |
+        if [[ $BRANCH_NAME == *"de"* ]]; then
+          echo "enable_adobe_analytics_assurance=true" >> build_overrides.properties
+          echo "enable_debug_menu=true" >> build_overrides.properties
+        elif [[ $BRANCH_NAME == *"uk"* ]]; then
+          echo "enable_adobe_analytics_assurance=true" >> build_overrides.properties
+        elif [[ $BRANCH_NAME == *"us"* ]]; then
+          echo "enable_adobe_analytics_assurance=true" >> build_overrides.properties
+          echo "unitedstates_qa_aem_api=https://int2.qvc.com" >> build_overrides.properties
+          echo "unitedstates_qa_website_url=https://int2.qvc.com" >> build_overrides.properties
+          echo "unitedstates_qa_legacy_login_api=https://int2.qvc.com" >> build_overrides.properties
+          echo "unitedstates_qa_launchdarkly_mobile_key=mob-5144e0e1-0d2e-42bc-93bd-e00c690faa80" >> build_overrides.properties
+          echo "unitedstates_appsettings_url=https://qa-api.qvc.com/us/appsettings/v1/int1/android.json" >> build_overrides.properties
+        elif [[ $BRANCH_NAME == *"it"* ]]; then
+          echo "enable_adobe_analytics_assurance=true" >> build_overrides.properties
+          echo "italia_qa_launchdarkly_mobile_key=mob-349e3190-91b6-47d6-bdfe-525e68495aee" >> build_overrides.properties
+          echo "italia_qa_api=https://int-api.qvc.it" >> build_overrides.properties
+          echo "italia_qa_aem_api=https://int7.qvc.it" >> build_overrides.properties
+          echo "italia_qa_website_url=https://int7.qvc.it" >> build_overrides.properties
+          echo "italia_appsettings_url=https://int-api.qvc.it/it/appsettings/v1/int7/android.json" >> build_overrides.properties
+          echo "italia_qa_launchdarkly_mobile_key=mob-349e3190-91b6-47d6-bdfe-525e68495aee" >> build_overrides.properties
+        elif [[ $BRANCH_NAME == *"jp"* ]]; then
+          echo "japan_qa_api=https://int-api.qvc.jp" >> build_overrides.properties
+          echo "japan_qa_aem_api=https://int2.qvc.com" >> build_overrides.properties
+          echo "japan_qa_website_url=https://int2.qvc.com" >> build_overrides.properties
+          echo "japan_appsettings_url=https://qa-api.qvc.jp/jp/appsettings/v1/int2/android.json" >> build_overrides.properties
+        fi 
+        echo "------SHOWING-build_overrides.properties-----"
+        cat build_overrides.properties
+        
+  - task: Bash@3
+    displayName: Extract Jira tickets
+    inputs:
+      targetType: inline
+      script: |
+        function process_pull_requests {
+            # Define the branch name
+            DOC_BRANCH_NAME=$(Build.SourceBranchName)
+            echo "Branch Name: $DOC_BRANCH_NAME"
+ 
+            # Extract the version and geo from the branch name
+            DOC_VERSION=$(echo $DOC_BRANCH_NAME | cut -d'/' -f 3 | cut -d'_' -f 1 | sed 's/m//')
+            echo "Version: $DOC_VERSION"
+            DOC_GEO=$(echo $DOC_BRANCH_NAME | cut -d'/' -f 3 | cut -d'_' -f 2)
+            echo "Geo: $DOC_GEO"
+ 
+            # Convert geo to uppercase
+            DOC_GEO_UPPER=$(echo "$DOC_GEO" | tr '[:lower:]' '[:upper:]')
+            echo "Geo (Upper Case): $DOC_GEO_UPPER"
+ 
+            # Define the repository name
+            REPO_NAME=$(basename "https://$(System.AccessToken)@dev.azure.com/Qurate/QRG-ReleaseEngineers/_git/RELEASE_24_08_DE" .git)
+            echo "Repository Name: $REPO_NAME"
+ 
+            # Navigate into the repository if it exists, otherwise clone it
+            if [ -d "$REPO_NAME.git" ]; then
+                echo "Repository exists, navigating into it..."
+                cd $REPO_NAME.git
+            else
+                echo "Cloning the repository..."
+                if git clone --bare "https://$(System.AccessToken)@dev.azure.com/Qurate/QRG-ReleaseEngineers/_git/RELEASE_24_08_DE"; then
+                    echo "Successfully cloned the repository."
+                else
+                    echo "Failed to clone the repository."
+                    exit 1
+                fi
+                echo "Navigating into the repository..."
+                cd $REPO_NAME.git
+            fi
+ 
+            # Fetch all branches from the remote repository
+            echo "Fetching all branches from the remote repository..."
+            git fetch origin
+ 
+            # Get the commit hash for the current build
+            DOC_COMMIT_HASH=$(git rev-parse HEAD)
+            echo "Commit Hash: $DOC_COMMIT_HASH"
+ 
+            # Get the pull requests
+            echo "Getting the pull requests..."
+            PULL_REQUESTS=$(git log --oneline -n 1000 --merges --grep="Pull request")
+            echo "Pull requests before filtering:"
+            echo "$PULL_REQUESTS"
+ 
+            # Filter pull requests based on version and geo...
+            echo "Filtering pull requests based on version and geo..."
+            PULL_REQUESTS_FILTERED=$(echo "$PULL_REQUESTS" | grep -E "\[.*${DOC_GEO_UPPER}.*\]|\[.*ALL.*\]|\[.*all.*\]" | grep -E "\[.*${DOC_VERSION}.*\]")
+ 
+            # Print the filtered pull requests to the log
+            if [ -z "$PULL_REQUESTS_FILTERED" ]; then
+                echo "No pull requests found for version ${DOC_VERSION} and geo ${DOC_GEO_UPPER}"
+            else
+                echo "Pull requests after filtering:"
+                IFS=$'\n'  # Change the Internal Field Separator to a newline
+                for PR_LINE in $PULL_REQUESTS_FILTERED; do
+                    PR_ID=$(echo "$PR_LINE" | awk '{print $1}')  # Extract the commit hash
+                    PR_TITLE=$(echo "$PR_LINE" | cut -d' ' -f2-)  # Extract the rest of the line
+                    echo "- PR $PR_ID: $PR_TITLE"
+                done
+            fi
+ 
+            # Extract Jira tickets and their descriptions...
+            echo "Extracting Jira tickets and their descriptions..."
+            JIRA_TICKETS_AND_DESCRIPTIONS=$(echo "$PULL_REQUESTS_FILTERED" | grep -o -E "[A-Z]*-[0-9]*.*" | sed 's/\[.*\]//' | sed 's/^[^A-Za-z0-9]*//' | sort | uniq)
+            echo "Jira tickets and descriptions:"
+            echo "$JIRA_TICKETS_AND_DESCRIPTIONS"
+            JIRA_TICKETS_AND_DESCRIPTIONS=$(echo "$JIRA_TICKETS_AND_DESCRIPTIONS" | tr '\n' ';' | sed 's/^[ -]*//')
+            echo "##vso[task.setvariable variable=JIRA_TICKETS_AND_DESCRIPTIONS]$JIRA_TICKETS_AND_DESCRIPTIONS"
+ 
+            # Export VERSION and GEO_UPPER as task variables
+            echo "##vso[task.setvariable variable=DOC_VERSION]$DOC_VERSION"
+            echo "##vso[task.setvariable variable=DOC_GEO_UPPER]$DOC_GEO_UPPER"
+        }
+ 
+        # Call the function
+        process_pull_requests
+  - task: Bash@3
+    displayName: Extract lib versions and version info
+    inputs:
+      targetType: inline
+      script: |
+        function extract_lib_versions {
+            # Get the branch name from the Azure DevOps predefined variable
+            DOC_BRANCH_NAME="release/$BUILD_SOURCEBRANCHNAME"
+            echo "Branch Name: $DOC_BRANCH_NAME"
+ 
+            # Checkout to the current branch
+            echo "Checking out to the current branch..."
+            git checkout $DOC_BRANCH_NAME
+ 
+            # Fetch the latest changes from the remote repository
+            echo "Fetching the latest changes from the remote repository..."
+            git pull
+ 
+            echo "Starting to extract library versions..."
+ 
+            # Ensure we are working with the latest commit on the current branch
+            echo "Fetching the latest changes from the remote repository..."
+            git pull
+ 
+            # Extract QVC library versions from build.gradle
+            echo "Extracting QVC library versions from build.gradle..."
+            QVC_LIB_VERSIONS=$(grep 'QVC_' build.gradle | grep -v 'QVC_TEST_LIB' | awk -F'[:=]' '{print $1, $2}' | sed 's/,//' | tr -d "'" | sed 's/^[ \t]*//' | tr '\n' ';')
+            echo "##vso[task.setvariable variable=QVC_LIB_VERSIONS]$QVC_LIB_VERSIONS"
+ 
+            # Map GEO_UPPER values to geo names in gradle.properties
+            case "$DOC_GEO_UPPER" in
+                "UK") GEO_NAME="unitedkingdom" ;;
+                "DE") GEO_NAME="deutschland" ;;
+                "IT") GEO_NAME="italia" ;;
+                "US") GEO_NAME="unitedstates" ;;
+                "JP") GEO_NAME="japan" ;;
+                *) echo "Unknown geo: $DOC_GEO_UPPER" ;;
+            esac
+ 
+            # Extract version code and version name from the given file for the specific geo
+            echo "Extracting version code and version name from gradle.properties for geo ${DOC_GEO_UPPER}..."
+            DOC_VERSION_CODE=$(grep "${GEO_NAME}_version_code" gradle.properties | awk -F= '{print $2}' | tr -d ' ')
+            DOC_VERSION_NAME=$(grep "${GEO_NAME}_version_name" gradle.properties | awk -F= '{print $2}' | tr -d ' ')
+            echo "##vso[task.setvariable variable=DOC_VERSION_CODE]$DOC_VERSION_CODE"
+            echo "##vso[task.setvariable variable=DOC_VERSION_NAME]$DOC_VERSION_NAME"
+        }
+ 
+        # Call the function
+        extract_lib_versions
+  - task: Bash@3
+    displayName: Create release document
+    inputs:
+      targetType: inline
+      script: |
+        function create_release_document {
+            # Get the variables from the environment
+            JIRA_TICKETS_AND_DESCRIPTIONS=$(printf '%b' "$(echo "${JIRA_TICKETS_AND_DESCRIPTIONS}" | tr ';' '\n')")
+            QVC_LIB_VERSIONS=$(printf '%b' "$(echo "${QVC_LIB_VERSIONS}" | tr ';' '\n')")
+            DOC_VERSION_CODE=$(printf '%b' "$(echo "${DOC_VERSION_CODE}")")
+            DOC_VERSION_NAME=$(printf '%b' "$(echo "${DOC_VERSION_NAME}")")
+            DOC_VERSION=$(printf '%b' "$(echo "${DOC_VERSION}")")
+            DOC_GEO_UPPER=$(printf '%b' "$(echo "${DOC_GEO_UPPER}")")
+            JIRA_BASE_URL="https://qurate.atlassian.net/browse" # replace with your Jira base URL
+ 
+            # Create the HTML release document
+            echo "<!DOCTYPE html>" > release-document.html
+            echo "<html>" >> release-document.html
+            echo "<body>" >> release-document.html
+            echo "<h1>${DOC_VERSION} ${DOC_GEO_UPPER} Android (${DOC_VERSION_NAME} - ${DOC_VERSION_CODE}) - Release Document</h1>" >> release-document.html
+            echo "<h2>Jira tickets</h2>" >> release-document.html
+            while IFS= read -r ticket; do
+                TICKET_ID=$(echo "${ticket}" | grep -oE '[A-Z]+-[0-9]+')
+                DESCRIPTION=$(echo "${ticket}" | sed "s/${TICKET_ID}//")
+                echo "<p><a href=\"${JIRA_BASE_URL}/${TICKET_ID}\">${TICKET_ID}</a> $DESCRIPTION</p>" >> release-document.html
+            done <<< "${JIRA_TICKETS_AND_DESCRIPTIONS}"
+            echo "<h2>External libs</h2>" >> release-document.html
+            echo "${QVC_LIB_VERSIONS}" | sed 's/^/<p>/; s/$/<\/p>/' >> release-document.html
+            echo "</body>" >> release-document.html
+            echo "</html>" >> release-document.html
+        }
+ 
+        # Call the function
+        create_release_document
+  - task: Gradle@3
+    displayName: gradlew clean assemble$(geo)$(environment)debug
+    env:
+      SYSTEM_ACCESSNAME: "Build Agent"
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+ 
+    inputs:
+      tasks: clean assemble$(geo)$(environment)debug
+      publishJUnitResults: false
+  - task: Bash@3
+    displayName: APK name change
+    inputs:
+      targetType: inline
+      script: |
+        ### Changing .apk name and moving it to the Build.Artifact folder
+        find . -type f -name "*.apk" -exec echo "{}" \;
+ 
+        apk_path=$(find . -name "*.apk")
+        # if [[ $(Build.Reason) == "IndividualCI" ]]; then
+        #   apk_dest=$(Build.ArtifactStagingDirectory)/$(RELEASE_NAME)_$(DISTRIBUTION)_$(COMMIT_HASH)_$(BUILD_TIMESTAMP).apk
+        # elif [[ $(Build.Reason) != "IndividualCI" ]]; then
+        #   apk_dest=$(Build.ArtifactStagingDirectory)/${{ parameters.RELEASE_NAME }}_$(DISTRIBUTION)_$(COMMIT_HASH)_$(BUILD_TIMESTAMP).apk
+        # fi
+        apk_dest=$(Build.ArtifactStagingDirectory)/$(RELEASE_NAME)_$(DISTRIBUTION)_$(COMMIT_HASH)_$(BUILD_TIMESTAMP).apk
+ 
+        echo "APK path: $apk_path"
+        echo "APK destination: $apk_dest"
+ 
+        mv $apk_path $apk_dest
+        echo "APK moved to $apk_dest"
+    
+  - task: Bash@3
+    displayName: 'Echo all variables used in the build'
+    inputs:
+      targetType: inline
+      script: |
+        echo "This build uses the following variables:"
+        echo "BRANCH_NAME: $(BRANCH_NAME)"
+        echo "environment: $(environment)"
+        echo "timestamp: $(timestamp)"
+        echo "COMMIT_HASH: $(COMMIT_HASH)"
+        echo "BUILD_TIMESTAMP: $(BUILD_TIMESTAMP)"
+        echo "DISTRIBUTION: $(DISTRIBUTION)"
+        echo "RELEASE_NAME: $(RELEASE_NAME)"
+        echo "JIRA_TICKETS: $(JIRA_TICKETS)"
+        echo "PIPELINE_VERSION_NAME: $(PIPELINE_VERSION_NAME)"
+        echo "PIPELINE_VERSION_CODE: $(PIPELINE_VERSION_CODE)"
+        echo "QVC_LIB_VERSIONS: $(QVC_LIB_VERSIONS)"
+        echo "DOC_VERSION_CODE: $(DOC_VERSION_CODE)"
+        echo "DOC_VERSION_NAME: $(DOC_VERSION_NAME)"
+        echo "DOC_VERSION: $(DOC_VERSION)"
+        echo "DOC_GEO_UPPER: $(DOC_GEO_UPPER)"
+ 
+  ### Publish .apk files to path based on variables (automatic trigger) or parameters (manual trigger)
+  - task: PublishBuildArtifacts@1
+    displayName: 'Publish Artifact: .apk'
+    inputs:
+      PathtoPublish: $(Build.ArtifactStagingDirectory)/$(RELEASE_NAME)_$(DISTRIBUTION)_$(COMMIT_HASH)_$(BUILD_TIMESTAMP).apk
+  #   condition: eq( variables['Build.Reason'], 'IndividualCI' )
+  # - task: PublishBuildArtifacts@1
+  #   displayName: 'Publish Artifact: .apk'
+  #   inputs:
+  #     PathtoPublish: $(Build.ArtifactStagingDirectory)/${{ parameters.RELEASE_NAME }}_$(DISTRIBUTION)_$(COMMIT_HASH)_$(BUILD_TIMESTAMP).apk
+  #   condition: ne( variables['Build.Reason'], 'IndividualCI' )
+  - task: PublishBuildArtifacts@1
+    displayName: 'Publish Artifact: release-document'
+    inputs:
+      PathtoPublish: $(System.DefaultWorkingDirectory)/release-document.html
+      ArtifactName: release-notes
