@@ -1,0 +1,29 @@
+trigger:
+  - release
+  
+
+pool:
+  #vmImage: "ubuntu-latest"
+  name: ADF-Infra-prod
+
+stages:
+  - stage: Build
+    jobs:
+      - job:
+        displayName: Build artifacts
+        steps:
+          - task: PublishPipelineArtifact@1
+            displayName: "Publish modules"
+            inputs:
+              targetPath: "ADF-Infrastructure/terraform"
+              artifactName: "ADF-Infrastructure"
+  
+  - stage: Prod
+    jobs:
+      - template: ../stages/terraform.yaml
+        parameters:
+          environment: prod
+          connection: SSEU-ETL-CIP-PROD
+          resourceGroup: RGAZ-SSEU-ETL-CIP-prod
+          storageAccount: terraformadfprod
+          adfStorageAccount: northstarstorageacntprod
