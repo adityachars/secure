@@ -1,0 +1,45 @@
+parameters:
+  - name: env
+    type: string
+    default: ""
+
+  - name: serviceConnection
+    type: string
+    default: ""
+
+  - name: resourceGroupName
+    type: string
+    default: ""
+
+  - name: storageAccountName
+    type: string
+    default: ""
+
+jobs:
+  - deployment: Cleanup_${{ parameters.env }}_IPs
+    displayName: 'Cleanup IPs from ${{ parameters.env }} Storage Account'
+    environment: ${{ parameters.env }}
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - checkout: self
+              path: ADF-Infra
+              displayName: "Checkout self"
+
+            # Remove IP Rules
+            - task: AzurePowerShell@5
+              displayName: 'Remove IP Rules from Storage Account Firewall in ${{ parameters.env }}'
+              inputs:
+                azureSubscription: ${{ parameters.serviceConnection }}
+                azurePowerShellVersion: LatestVersion
+                ScriptType: 'InlineScript'
+                Inline: |
+                    Write-Host "Cleaning up top 100 IPs from SA Firewall..."
+                    (Get-AzStorageAccountNetworkRuleSet -ResourceGroupName '${{ parameters.resourceGroupName }}' -Name '${{ parameters.storageAccountName }}').IpRules | Select -First 100 | Remove-AzStorageAccountNetworkRule '${{ parameters.resourceGroupName }}' -Name '${{ parameters.storageAccountName }}'
+                    Write-Host "Clean up completed!"
+                
+
+
+
+    
